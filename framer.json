@@ -1,0 +1,9 @@
+{
+  "id": "0b6150",
+  "name": "Hovers Framer Plugin",
+  "modes": [
+    "configureManagedCollection",
+    "syncManagedCollection"
+  ],
+  "icon": "/icon.svg"
+}
