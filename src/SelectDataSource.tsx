@@ -1,14 +1,36 @@
 import { framer } from "framer-plugin"
-import { useState } from "react"
-import { type DataSource, dataSourceOptions, getDataSource } from "./data"
+import { useEffect, useState } from "react"
+import { type DataSource, getDataSource, PLUGIN_KEYS } from "./data"
+import { type HoversConfig } from "./hoversApi"
+import { clearHoversConfig } from "./config"
+
+import { type ManagedCollection } from "framer-plugin"
 
 interface SelectDataSourceProps {
-    onSelectDataSource: (dataSource: DataSource) => void
+    readonly onSelectDataSource: (dataSource: DataSource) => void
+    readonly hoversConfig: HoversConfig
+    readonly collection: ManagedCollection
+    readonly onReconfigure: () => void
 }
 
-export function SelectDataSource({ onSelectDataSource }: SelectDataSourceProps) {
-    const [selectedDataSourceId, setSelectedDataSourceId] = useState<string>(dataSourceOptions[0].id)
+export function SelectDataSource({ onSelectDataSource, hoversConfig, collection, onReconfigure }: SelectDataSourceProps) {
     const [isLoading, setIsLoading] = useState(false)
+    const [fetchAll, setFetchAll] = useState(false)
+    const [maxPages, setMaxPages] = useState<string>("")
+    const [status, setStatus] = useState<"draft" | "ready" | "published" | "scheduled" | undefined>(undefined)
+
+    useEffect(() => {
+        collection
+            .getPluginData(PLUGIN_KEYS.STATUS_FILTER)
+            .then(savedStatus => {
+                if (savedStatus) {
+                    setStatus(savedStatus as "draft" | "ready" | "published" | "scheduled")
+                }
+            })
+            .catch(error => {
+                console.error("Failed to load saved status filter:", error)
+            })
+    }, [collection])
 
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -16,55 +38,116 @@ export function SelectDataSource({ onSelectDataSource }: SelectDataSourceProps) 
         try {
             setIsLoading(true)
 
-            const dataSource = await getDataSource(selectedDataSourceId)
+            const dataSource = await getDataSource("articles", {
+                config: hoversConfig,
+                fetchAll,
+                maxPages:
+                    fetchAll && maxPages.trim()
+                        ? Number.parseInt(maxPages.trim(), 10) || undefined
+                        : undefined,
+                status: status || undefined,
+                saveStatus: true,
+                collection: collection,
+            })
             onSelectDataSource(dataSource)
         } catch (error) {
             console.error(error)
-            framer.notify(`Failed to load data source “${selectedDataSourceId}”. Check the logs for more details.`, {
-                variant: "error",
-            })
+            let errorMessage = "Failed to load articles. Check the logs for more details."
+
+            if (error instanceof Error) {
+                if (error.message.includes("401") || error.message.includes("Unauthorized")) {
+                    errorMessage = "Invalid API credentials. Please reconfigure your Hovers connection."
+                } else if (error.message.includes("429")) {
+                    errorMessage = "Rate limit exceeded. Please try again in a moment."
+                } else if (error.message.includes("Failed to fetch") || error.message.includes("NetworkError")) {
+                    errorMessage = "Network error. Please check your internet connection and base URL."
+                }
+            }
+
+            framer.notify(errorMessage, { variant: "error" })
         } finally {
             setIsLoading(false)
         }
     }
 
+    const handleReconfigure = async () => {
+        await clearHoversConfig()
+        onReconfigure()
+    }
+
     return (
-        <main className="framer-hide-scrollbar setup">
+        <main className="setup">
             <div className="intro">
-                <div className="logo">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="none">
-                        <title>CMS Starter</title>
-                        <path
-                            fill="currentColor"
-                            d="M15.5 8c3.59 0 6.5 1.38 6.5 3.083 0 1.702-2.91 3.082-6.5 3.082S9 12.785 9 11.083C9 9.38 11.91 8 15.5 8Zm6.5 7.398c0 1.703-2.91 3.083-6.5 3.083S9 17.101 9 15.398v-2.466c0 1.703 2.91 3.083 6.5 3.083s6.5-1.38 6.5-3.083Zm0 4.316c0 1.703-2.91 3.083-6.5 3.083S9 21.417 9 19.714v-2.466c0 1.702 2.91 3.083 6.5 3.083S22 18.95 22 17.248Z"
-                        />
-                    </svg>
+                <div className="logo-container">
+                    <img src="/hovers-logo-light.png" alt="Hovers" className="logo-img logo-img-light" />
+                    <img src="/hovers-logo-dark.png" alt="Hovers" className="logo-img logo-img-dark" />
                 </div>
                 <div className="content">
-                    <h2>CMS Starter</h2>
-                    <p>Everything you need to get started with a CMS Plugin.</p>
+                    <h2>Sync Articles</h2>
+                    <p>Choose which articles to sync from Hovers</p>
                 </div>
             </div>
 
             <form onSubmit={handleSubmit}>
-                <label htmlFor="collection">
+                <label htmlFor="status" className="status-filter-row">
+                    <span>Status</span>
                     <select
-                        id="collection"
-                        onChange={event => setSelectedDataSourceId(event.target.value)}
-                        value={selectedDataSourceId}
+                        id="status"
+                        onChange={event =>
+                            setStatus(
+                                event.target.value === ""
+                                    ? undefined
+                                    : (event.target.value as "draft" | "ready" | "published" | "scheduled")
+                            )
+                        }
+                        value={status || ""}
+                        disabled={isLoading}
                     >
-                        <option value="" disabled>
-                            Choose Source…
-                        </option>
-                        {dataSourceOptions.map(({ id, name }) => (
-                            <option key={id} value={id}>
-                                {name}
-                            </option>
-                        ))}
+                        <option value="">All Statuses</option>
+                        <option value="draft">Draft</option>
+                        <option value="ready">Ready</option>
+                        <option value="published">Published</option>
+                        <option value="scheduled">Scheduled</option>
                     </select>
                 </label>
-                <button type="submit" disabled={!selectedDataSourceId || isLoading}>
-                    {isLoading ? <div className="framer-spinner" /> : "Next"}
+
+                <label htmlFor="fetchAll" className="checkbox-row">
+                    <input
+                        id="fetchAll"
+                        type="checkbox"
+                        checked={fetchAll}
+                        onChange={event => setFetchAll(event.target.checked)}
+                        disabled={isLoading}
+                    />
+                    <span>Fetch all articles (paginated)</span>
+                </label>
+
+                {fetchAll && (
+                    <label htmlFor="maxPages">
+                        <span>Max Pages (optional)</span>
+                        <input
+                            id="maxPages"
+                            type="number"
+                            min="1"
+                            value={maxPages}
+                            onChange={event => setMaxPages(event.target.value)}
+                            disabled={isLoading}
+                            placeholder="Leave empty for all pages"
+                        />
+                    </label>
+                )}
+
+                <button type="submit" disabled={isLoading}>
+                    {isLoading ? <div className="framer-spinner" /> : "Continue"}
+                </button>
+
+                <button
+                    type="button"
+                    className="reconfigure-btn"
+                    onClick={handleReconfigure}
+                    disabled={isLoading}
+                >
+                    Disconnect
                 </button>
             </form>
         </main>

@@ -2,63 +2,53 @@ import "./App.css"
 
 import { framer, type ManagedCollection } from "framer-plugin"
 import { useEffect, useLayoutEffect, useState } from "react"
-import { type DataSource, getDataSource } from "./data"
+import { type DataSource } from "./data"
 import { FieldMapping } from "./FieldMapping"
 import { SelectDataSource } from "./SelectDataSource"
+import { ConfigureHovers } from "./ConfigureHovers"
+import { getHoversConfig } from "./config"
+import { type HoversConfig } from "./hoversApi"
 
 interface AppProps {
     collection: ManagedCollection
-    previousDataSourceId: string | null
     previousSlugFieldId: string | null
 }
 
-export function App({ collection, previousDataSourceId, previousSlugFieldId }: AppProps) {
+export function App({ collection, previousSlugFieldId }: AppProps) {
     const [dataSource, setDataSource] = useState<DataSource | null>(null)
-    const [isLoadingDataSource, setIsLoadingDataSource] = useState(Boolean(previousDataSourceId))
+    const [hoversConfig, setHoversConfig] = useState<HoversConfig | null>(null)
+    const [isLoadingConfig, setIsLoadingConfig] = useState(true)
+
+    // Load Hovers config on mount
+    useEffect(() => {
+        getHoversConfig()
+            .then(config => {
+                setHoversConfig(config)
+            })
+            .catch(error => {
+                console.error("Failed to load Hovers config:", error)
+            })
+            .finally(() => {
+                setIsLoadingConfig(false)
+            })
+    }, [])
 
     useLayoutEffect(() => {
         const hasDataSourceSelected = Boolean(dataSource)
 
         framer.showUI({
-            width: hasDataSourceSelected ? 360 : 260,
-            height: hasDataSourceSelected ? 425 : 340,
+            width: hasDataSourceSelected ? 360 : 300,
+            height: hasDataSourceSelected ? 425 : hoversConfig ? 370 : 360,
             minWidth: hasDataSourceSelected ? 360 : undefined,
             minHeight: hasDataSourceSelected ? 425 : undefined,
             resizable: hasDataSourceSelected,
         })
-    }, [dataSource])
+    }, [dataSource, hoversConfig])
 
-    useEffect(() => {
-        if (!previousDataSourceId) {
-            return
-        }
+    // Don't auto-load data source - let user choose status filter each time
+    // This allows users to change the status filter on each sync
 
-        const abortController = new AbortController()
-
-        setIsLoadingDataSource(true)
-        getDataSource(previousDataSourceId, abortController.signal)
-            .then(setDataSource)
-            .catch(error => {
-                if (abortController.signal.aborted) return
-
-                console.error(error)
-                framer.notify(
-                    `Error loading previously configured data source “${previousDataSourceId}”. Check the logs for more details.`,
-                    {
-                        variant: "error",
-                    }
-                )
-            })
-            .finally(() => {
-                if (abortController.signal.aborted) return
-
-                setIsLoadingDataSource(false)
-            })
-
-        return () => abortController.abort()
-    }, [previousDataSourceId])
-
-    if (isLoadingDataSource) {
+    if (isLoadingConfig) {
         return (
             <main className="loading">
                 <div className="framer-spinner" />
@@ -66,8 +56,19 @@ export function App({ collection, previousDataSourceId, previousSlugFieldId }: A
         )
     }
 
+    if (!hoversConfig) {
+        return <ConfigureHovers onConfigured={setHoversConfig} />
+    }
+
     if (!dataSource) {
-        return <SelectDataSource onSelectDataSource={setDataSource} />
+        return (
+            <SelectDataSource
+                onSelectDataSource={setDataSource}
+                hoversConfig={hoversConfig}
+                collection={collection}
+                onReconfigure={() => setHoversConfig(null)}
+            />
+        )
     }
 
     return <FieldMapping collection={collection} dataSource={dataSource} initialSlugFieldId={previousSlugFieldId} />

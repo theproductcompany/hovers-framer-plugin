@@ -3,10 +3,13 @@
 main {
     display: flex;
     flex-direction: column;
-    align-items: start;
-    padding: 0 15px 15px;
+    align-items: stretch;
+    padding: 24px;
     height: 100%;
-    gap: 15px;
+    gap: 0;
+    box-sizing: border-box;
+    overflow-y: auto;
+    background-color: var(--framer-color-bg);
 
     user-select: none;
     -webkit-user-select: none;
@@ -16,7 +19,11 @@ form {
     display: flex;
     flex-direction: column;
     width: 100%;
-    gap: 10px;
+    gap: 20px;
+    flex: 1;
+    min-height: 0;
+    box-sizing: border-box;
+    overflow: visible;
 }
 
 .sticky-divider {
@@ -26,12 +33,70 @@ form {
 
 select {
     width: 100%;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+}
+
+.setup select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23999' d='M5 7L1.5 3.5h7L5 7z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 10px 10px;
+    padding: 8px 40px 8px 12px;
+    cursor: pointer;
+    border-radius: 6px;
+    border: 0.5px solid rgba(0, 0, 0, 0.1);
+    background-color: rgba(0, 0, 0, 0.02);
+    transition: all 0.15s ease;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+[data-framer-theme="dark"] .setup select {
+    border: 0.5px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.05);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23ccc' d='M5 7L1.5 3.5h7L5 7z'/%3E%3C/svg%3E");
+}
+
+.setup select:hover:not(:disabled) {
+    border-color: rgba(0, 0, 0, 0.15);
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+[data-framer-theme="dark"] .setup select:hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.15);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.setup select:focus {
+    outline: none;
+    border-color: var(--framer-color-tint);
+    background-color: var(--framer-color-bg);
+    box-shadow: 0 0 0 2px rgba(var(--framer-color-tint-rgb, 0, 122, 255), 0.1);
+}
+
+.setup select:active:not(:disabled) {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-framer-theme="dark"] .setup select:active:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.1);
 }
 
 select:disabled,
 input[type="text"]:disabled,
+input[type="password"]:disabled,
+input[type="number"]:disabled,
 .ignored {
     opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .mapping select {
@@ -51,50 +116,324 @@ input[type="text"]:disabled,
 }
 
 .logo {
+    color: var(--framer-color-text);
+    background: var(--framer-color-bg-tertiary);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+    margin-bottom: 4px;
+}
+
+.logo-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.logo-img {
+    height: 28px;
+    width: auto;
+    object-fit: contain;
+}
+
+.logo-img-light {
+    display: block;
+}
+
+.logo-img-dark {
+    display: none;
+}
+
+[data-framer-theme="dark"] .logo-img-light {
+    display: none;
+}
+
+[data-framer-theme="dark"] .logo-img-dark {
+    display: block;
+}
+
+.help-text {
+    text-align: center;
+    font-size: 12px;
     color: var(--framer-color-text-tertiary);
-    background-color: var(--framer-color-bg-tertiary);
-    border-radius: 8px;
+    margin: 0;
+    padding: 0 16px 4px;
+    line-height: 1.5;
+}
+
+.help-text a {
+    color: var(--framer-color-tint);
+    text-decoration: none;
+}
+
+.help-text a:hover {
+    text-decoration: underline;
+}
+
+.reconfigure-btn {
+    all: unset;
+    display: block;
+    text-align: center;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0 16px 20px;
+    font-size: 12px;
+    color: var(--framer-color-text-tertiary);
+    cursor: pointer;
+    transition: color 0.15s ease;
+    margin-top: -8px;
+}
+
+.reconfigure-btn:hover:not(:disabled) {
+    color: var(--framer-color-text-secondary);
+}
+
+.reconfigure-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .setup {
-    align-items: center;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 24px 0 0;
+    max-width: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
-.setup select {
-    font-weight: 600;
+.setup input[type="text"],
+.setup input[type="password"],
+.setup input[type="number"] {
+    font-weight: 400;
+    border-radius: 8px;
+    border: 1.5px solid var(--framer-color-border);
+    background-color: var(--framer-color-bg);
+    transition: all 0.15s ease;
+    color: var(--framer-color-text);
+}
+
+.setup input[type="text"]:focus,
+.setup input[type="password"]:focus,
+.setup input[type="number"]:focus {
+    outline: none;
+    border-color: var(--framer-color-tint);
+    box-shadow: 0 0 0 3px rgba(var(--framer-color-tint-rgb, 0, 122, 255), 0.08);
+    background-color: var(--framer-color-bg);
+}
+
+.setup input[type="text"]:hover:not(:disabled),
+.setup input[type="password"]:hover:not(:disabled),
+.setup input[type="number"]:hover:not(:disabled) {
+    border-color: var(--framer-color-tint);
 }
 
 .intro {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    height: 100%;
+    justify-content: flex-start;
     width: 100%;
-    flex: 1;
     text-align: center;
-    max-width: 160px;
-    gap: 15px;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.intro .content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .intro h2 {
-    line-height: 1;
-    font-size: 1em;
-    margin-bottom: 10px;
+    line-height: 1.3;
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--framer-color-text);
+    letter-spacing: -0.01em;
 }
 
 .intro p {
-    color: var(--framer-color-text-tertiary);
+    color: var(--framer-color-text-secondary);
+    font-size: 12px;
+    margin: 0;
+    line-height: 1.5;
+    max-width: 280px;
 }
 
 .setup label {
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    height: 30px;
+    flex-direction: column;
     width: 100%;
-    justify-content: space-between;
-    color: var(--framer-color-text-secondary);
+    gap: 10px;
+    color: var(--framer-color-text);
+    flex-shrink: 0;
+    margin: 0;
+    padding-left: 16px;
+    padding-right: 16px;
+    box-sizing: border-box;
+}
+
+.setup label > select,
+.setup label > input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.setup label span {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--framer-color-text);
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+}
+
+.setup input[type="text"],
+.setup input[type="password"],
+.setup input[type="number"] {
+    padding: 8px 12px;
+    font-size: 14px;
+    width: 100%;
+    box-sizing: border-box;
+    line-height: 1.4;
+    margin: 0;
+    font-weight: 400;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.setup select {
+    min-width: 0;
+    max-width: 100%;
+    color: var(--framer-color-text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.setup label.status-filter-row,
+.setup label.checkbox-row {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    min-height: auto;
+    margin: 0;
+    cursor: default;
+}
+
+.setup label.checkbox-row {
+    cursor: pointer;
+}
+
+.setup label.status-filter-row span,
+.setup label.checkbox-row span {
+    font-size: 14px;
+    font-weight: 500;
+    flex: 0 0 auto;
+    color: var(--framer-color-text);
+    line-height: 1.5;
+    white-space: nowrap;
+    min-width: fit-content;
+    letter-spacing: -0.01em;
+}
+
+.setup label.status-filter-row select {
+    flex: 1;
+    min-width: 120px;
+    max-width: 100%;
+    margin: 0;
+    width: auto;
+}
+
+.setup input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    cursor: pointer;
+    accent-color: var(--framer-color-tint);
+    flex-shrink: 0;
+    margin: 0;
+}
+
+.setup button {
+    margin-top: 4px;
+    margin-bottom: 0;
+    margin-left: 16px;
+    margin-right: 16px;
+    padding: 13px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    background-color: var(--framer-color-tint);
+    color: white;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(100% - 32px);
+    flex-shrink: 0;
+    letter-spacing: -0.01em;
+}
+
+.setup button:hover:not(:disabled) {
+    opacity: 0.92;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.setup button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.setup button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.error-message {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background-color: rgba(255, 59, 48, 0.1);
+    color: var(--framer-color-text-danger, #ff3b30);
+    font-size: 13px;
+    line-height: 1.4;
+    border: 1px solid rgba(255, 59, 48, 0.2);
+    margin: 0 16px 16px 16px;
+    word-wrap: break-word;
+}
+
+/* Smooth transitions for form elements */
+.setup select,
+.setup input {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Ensure form takes available space */
+.setup form {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    gap: 12px;
+}
+
+/* Make form scrollable if needed */
+.setup {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .mapping {
