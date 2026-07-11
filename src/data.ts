@@ -3,9 +3,13 @@ import {
     type ManagedCollection,
     type ManagedCollectionFieldInput,
     type ManagedCollectionItemInput,
-    type ProtectedMethod,
 } from "framer-plugin"
 import { type HoversConfig, HoversAPI, type Article } from "./hoversApi"
+import {
+    hasManagedCollectionSyncPermissions,
+    MANAGED_COLLECTION_PERMISSION_MESSAGE,
+    withManagedCollectionOperation,
+} from "./permissions"
 
 export const PLUGIN_KEYS = {
     DATA_SOURCE_ID: "dataSourceId",
@@ -39,9 +43,15 @@ export async function getDataSource(dataSourceId: string, options: GetDataSource
     const api = new HoversAPI(options.config)
 
     if (options.saveStatus && options.collection) {
-        await options.collection.setPluginData(
-            PLUGIN_KEYS.STATUS_FILTER,
-            options.status !== undefined ? options.status : null
+        if (!hasManagedCollectionSyncPermissions()) {
+            throw new Error(MANAGED_COLLECTION_PERMISSION_MESSAGE)
+        }
+
+        await withManagedCollectionOperation("ManagedCollection.setPluginData", () =>
+            options.collection!.setPluginData(
+                PLUGIN_KEYS.STATUS_FILTER,
+                options.status !== undefined ? options.status : null
+            )
         )
     }
 
@@ -108,7 +118,9 @@ export async function syncCollection(
 ) {
     const items: ManagedCollectionItemInput[] = []
 
-    const existingItemIds = new Set(await collection.getItemIds())
+    const existingItemIds = new Set(
+        await withManagedCollectionOperation("ManagedCollection.getItemIds", () => collection.getItemIds())
+    )
     const seenIds = new Set<string>()
 
     for (let i = 0; i < dataSource.items.length; i++) {
@@ -122,10 +134,7 @@ export async function syncCollection(
         }
 
         const idValue = item["id"]
-        const itemId =
-            idValue && typeof idValue.value === "string" && idValue.value
-                ? idValue.value
-                : slugValue.value
+        const itemId = idValue && typeof idValue.value === "string" && idValue.value ? idValue.value : slugValue.value
 
         seenIds.add(itemId)
 
@@ -148,21 +157,26 @@ export async function syncCollection(
 
     const staleIds = Array.from(existingItemIds).filter(id => !seenIds.has(id))
     if (staleIds.length > 0) {
-        await collection.removeItems(staleIds)
+        await withManagedCollectionOperation("ManagedCollection.removeItems", () => collection.removeItems(staleIds))
     }
 
-    await collection.addItems(items)
-    await collection.setPluginData(PLUGIN_KEYS.DATA_SOURCE_ID, dataSource.id)
-    await collection.setPluginData(PLUGIN_KEYS.SLUG_FIELD_ID, slugField.id)
+    await withManagedCollectionOperation("ManagedCollection.addItems", () => collection.addItems(items))
+    await withManagedCollectionOperation("ManagedCollection.setPluginData", () =>
+        collection.setPluginData(PLUGIN_KEYS.DATA_SOURCE_ID, dataSource.id)
+    )
+    await withManagedCollectionOperation("ManagedCollection.setPluginData", () =>
+        collection.setPluginData(PLUGIN_KEYS.SLUG_FIELD_ID, slugField.id)
+    )
 }
 
-export const syncMethods = [
-    "ManagedCollection.removeItems",
-    "ManagedCollection.addItems",
-    "ManagedCollection.setPluginData",
-] as const satisfies ProtectedMethod[]
+export async function syncExistingCollection(
+    collection: ManagedCollection,
+    config: HoversConfig
+): Promise<{ didSync: boolean }> {
+    if (!hasManagedCollectionSyncPermissions()) {
+        throw new Error(MANAGED_COLLECTION_PERMISSION_MESSAGE)
+    }
 
-export async function syncExistingCollection(collection: ManagedCollection, config: HoversConfig): Promise<{ didSync: boolean }> {
     const [dataSourceId, slugFieldId, savedStatus] = await Promise.all([
         collection.getPluginData(PLUGIN_KEYS.DATA_SOURCE_ID),
         collection.getPluginData(PLUGIN_KEYS.SLUG_FIELD_ID),
@@ -184,7 +198,7 @@ export async function syncExistingCollection(collection: ManagedCollection, conf
     const slugField = dataSource.fields.find(f => f.id === slugFieldId)
     if (!slugField) return { didSync: false }
 
-    await collection.setFields(fields)
+    await withManagedCollectionOperation("ManagedCollection.setFields", () => collection.setFields(fields))
     await syncCollection(collection, dataSource, fields, slugField)
 
     return { didSync: true }

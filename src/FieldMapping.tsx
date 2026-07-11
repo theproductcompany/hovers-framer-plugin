@@ -1,6 +1,7 @@
 import { framer, type ManagedCollection, type ManagedCollectionFieldInput, useIsAllowedTo } from "framer-plugin"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { type DataSource, dataSourceOptions, mergeFieldsWithExistingFields, syncCollection, syncMethods } from "./data"
+import { type DataSource, dataSourceOptions, mergeFieldsWithExistingFields, syncCollection } from "./data"
+import { MANAGED_COLLECTION_PERMISSION_MESSAGE, syncMethods, withManagedCollectionOperation } from "./permissions"
 
 interface FieldMappingRowProps {
     field: ManagedCollectionFieldInput
@@ -147,7 +148,7 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
         })
     }, [])
 
-    const isAllowedToManage = useIsAllowedTo("ManagedCollection.setFields", ...syncMethods)
+    const isAllowedToManage = useIsAllowedTo(...syncMethods)
 
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -160,6 +161,11 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
             return
         }
 
+        if (!isAllowedToManage) {
+            framer.notify(MANAGED_COLLECTION_PERMISSION_MESSAGE, { variant: "error" })
+            return
+        }
+
         try {
             setStatus("syncing-collection")
 
@@ -169,7 +175,9 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
                 fieldsToSync.push({ ...field, name: field.name.trim() || field.id })
             }
 
-            await collection.setFields(fieldsToSync)
+            await withManagedCollectionOperation("ManagedCollection.setFields", () =>
+                collection.setFields(fieldsToSync)
+            )
             await syncCollection(collection, dataSource, fieldsToSync, selectedSlugField)
             framer.closePlugin("Synchronization successful", { variant: "success" })
         } catch (error) {
@@ -193,6 +201,8 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
         <main className="framer-hide-scrollbar mapping">
             <hr className="sticky-divider" />
             <form onSubmit={handleSubmit}>
+                {!isAllowedToManage && <div className="error-message">{MANAGED_COLLECTION_PERMISSION_MESSAGE}</div>}
+
                 <label className="slug-field" htmlFor="slugField">
                     Slug Field
                     <select

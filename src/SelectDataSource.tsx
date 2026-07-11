@@ -1,10 +1,9 @@
-import { framer } from "framer-plugin"
+import { framer, useIsAllowedTo, type ManagedCollection } from "framer-plugin"
 import { useEffect, useState } from "react"
 import { type DataSource, getDataSource, PLUGIN_KEYS } from "./data"
 import { type HoversConfig } from "./hoversApi"
 import { clearHoversConfig } from "./config"
-
-import { type ManagedCollection } from "framer-plugin"
+import { MANAGED_COLLECTION_PERMISSION_MESSAGE, syncMethods } from "./permissions"
 
 interface SelectDataSourceProps {
     readonly onSelectDataSource: (dataSource: DataSource) => void
@@ -13,13 +12,23 @@ interface SelectDataSourceProps {
     readonly onReconfigure: () => void
 }
 
-export function SelectDataSource({ onSelectDataSource, hoversConfig, collection, onReconfigure }: SelectDataSourceProps) {
+export function SelectDataSource({
+    onSelectDataSource,
+    hoversConfig,
+    collection,
+    onReconfigure,
+}: SelectDataSourceProps) {
     const [isLoading, setIsLoading] = useState(false)
     const [fetchAll, setFetchAll] = useState(false)
     const [maxPages, setMaxPages] = useState<string>("")
     const [status, setStatus] = useState<"draft" | "ready" | "published" | "scheduled" | undefined>(undefined)
+    const isAllowedToSync = useIsAllowedTo(...syncMethods)
 
     useEffect(() => {
+        if (!isAllowedToSync) {
+            return
+        }
+
         collection
             .getPluginData(PLUGIN_KEYS.STATUS_FILTER)
             .then(savedStatus => {
@@ -30,10 +39,15 @@ export function SelectDataSource({ onSelectDataSource, hoversConfig, collection,
             .catch(error => {
                 console.error("Failed to load saved status filter:", error)
             })
-    }, [collection])
+    }, [collection, isAllowedToSync])
 
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
+
+        if (!isAllowedToSync) {
+            framer.notify(MANAGED_COLLECTION_PERMISSION_MESSAGE, { variant: "error" })
+            return
+        }
 
         try {
             setIsLoading(true)
@@ -41,10 +55,7 @@ export function SelectDataSource({ onSelectDataSource, hoversConfig, collection,
             const dataSource = await getDataSource("articles", {
                 config: hoversConfig,
                 fetchAll,
-                maxPages:
-                    fetchAll && maxPages.trim()
-                        ? Number.parseInt(maxPages.trim(), 10) || undefined
-                        : undefined,
+                maxPages: fetchAll && maxPages.trim() ? Number.parseInt(maxPages.trim(), 10) || undefined : undefined,
                 status: status || undefined,
                 saveStatus: true,
                 collection: collection,
@@ -55,7 +66,9 @@ export function SelectDataSource({ onSelectDataSource, hoversConfig, collection,
             let errorMessage = "Failed to load articles. Check the logs for more details."
 
             if (error instanceof Error) {
-                if (error.message.includes("401") || error.message.includes("Unauthorized")) {
+                if (error.message.includes(MANAGED_COLLECTION_PERMISSION_MESSAGE)) {
+                    errorMessage = error.message
+                } else if (error.message.includes("401") || error.message.includes("Unauthorized")) {
                     errorMessage = "Invalid API credentials. Please reconfigure your Hovers connection."
                 } else if (error.message.includes("429")) {
                     errorMessage = "Rate limit exceeded. Please try again in a moment."
@@ -89,6 +102,8 @@ export function SelectDataSource({ onSelectDataSource, hoversConfig, collection,
             </div>
 
             <form onSubmit={handleSubmit}>
+                {!isAllowedToSync && <div className="error-message">{MANAGED_COLLECTION_PERMISSION_MESSAGE}</div>}
+
                 <label htmlFor="status" className="status-filter-row">
                     <span>Status</span>
                     <select
@@ -101,7 +116,7 @@ export function SelectDataSource({ onSelectDataSource, hoversConfig, collection,
                             )
                         }
                         value={status || ""}
-                        disabled={isLoading}
+                        disabled={isLoading || !isAllowedToSync}
                     >
                         <option value="">All Statuses</option>
                         <option value="draft">Draft</option>
@@ -117,7 +132,7 @@ export function SelectDataSource({ onSelectDataSource, hoversConfig, collection,
                         type="checkbox"
                         checked={fetchAll}
                         onChange={event => setFetchAll(event.target.checked)}
-                        disabled={isLoading}
+                        disabled={isLoading || !isAllowedToSync}
                     />
                     <span>Fetch all articles (paginated)</span>
                 </label>
@@ -131,22 +146,17 @@ export function SelectDataSource({ onSelectDataSource, hoversConfig, collection,
                             min="1"
                             value={maxPages}
                             onChange={event => setMaxPages(event.target.value)}
-                            disabled={isLoading}
+                            disabled={isLoading || !isAllowedToSync}
                             placeholder="Leave empty for all pages"
                         />
                     </label>
                 )}
 
-                <button type="submit" disabled={isLoading}>
+                <button type="submit" disabled={isLoading || !isAllowedToSync}>
                     {isLoading ? <div className="framer-spinner" /> : "Continue"}
                 </button>
 
-                <button
-                    type="button"
-                    className="reconfigure-btn"
-                    onClick={handleReconfigure}
-                    disabled={isLoading}
-                >
+                <button type="button" className="reconfigure-btn" onClick={handleReconfigure} disabled={isLoading}>
                     Disconnect
                 </button>
             </form>
