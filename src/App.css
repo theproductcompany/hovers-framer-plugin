@@ -220,6 +220,20 @@ input[type="number"]:disabled,
     padding: 0 16px 20px;
 }
 
+.warning-summary {
+    border-left: 3px solid var(--framer-color-tint);
+    padding-left: 12px;
+}
+
+.setup button.danger-btn {
+    background-color: #c0392b;
+    color: #fff;
+}
+
+.setup button.danger-btn:hover:not(:disabled) {
+    background-color: #a93226;
+}
+
 .setup {
     align-items: stretch;
     justify-content: flex-start;

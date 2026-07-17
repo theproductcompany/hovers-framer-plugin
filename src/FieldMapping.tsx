@@ -1,6 +1,14 @@
 import { framer, type ManagedCollection, type ManagedCollectionFieldInput, useIsAllowedTo } from "framer-plugin"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { type DataSource, dataSourceOptions, mergeFieldsWithExistingFields, syncCollection } from "./data"
+import {
+    applyCollectionSync,
+    type DataSource,
+    dataSourceOptions,
+    mergeFieldsWithExistingFields,
+    prepareCollectionSync,
+    type SyncPlan,
+} from "./data"
+import { RemovalConfirmation } from "./RemovalConfirmation"
 import { MANAGED_COLLECTION_PERMISSION_MESSAGE, syncMethods, withManagedCollectionOperation } from "./permissions"
 
 interface FieldMappingRowProps {
@@ -58,7 +66,6 @@ function FieldMappingRow({
     )
 }
 
-// Create a const empty array to be used whenever there are no fields.
 const emptyFields: ManagedCollectionFieldInput[] = []
 Object.freeze(emptyFields)
 
@@ -71,14 +78,16 @@ interface FieldMappingProps {
 }
 
 export function FieldMapping({ collection, dataSource, initialSlugFieldId }: FieldMappingProps) {
-    const [status, setStatus] = useState<"mapping-fields" | "loading-fields" | "syncing-collection">(
+    const [status, setStatus] = useState<"mapping-fields" | "loading-fields" | "preparing-sync" | "syncing-collection">(
         initialSlugFieldId ? "loading-fields" : "mapping-fields"
     )
-    const isSyncing = status === "syncing-collection"
+    const isBusy = status === "preparing-sync" || status === "syncing-collection"
     const isLoadingFields = status === "loading-fields"
 
     const [fields, setFields] = useState<ManagedCollectionFieldInput[]>(emptyFields)
     const [ignoredFieldIds, setIgnoredFieldIds] = useState(initialFieldIds)
+    const [pendingPlan, setPendingPlan] = useState<SyncPlan | null>(null)
+    const [syncError, setSyncError] = useState<string | null>(null)
 
     const possibleSlugFields = useMemo(
         () => dataSource.fields.filter(field => field.type === "string"),
@@ -126,11 +135,10 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
 
     const changeFieldName = useCallback((fieldId: string, name: string) => {
         setFields(prevFields => {
-            const updatedFields = prevFields.map(field => {
+            return prevFields.map(field => {
                 if (field.id !== fieldId) return field
                 return { ...field, name }
             })
-            return updatedFields
         })
     }, [])
 
@@ -150,12 +158,25 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
 
     const isAllowedToManage = useIsAllowedTo(...syncMethods)
 
+    const applyPlan = async (plan: SyncPlan, removeMissingItems: boolean) => {
+        try {
+            setStatus("syncing-collection")
+            setSyncError(null)
+            await applyCollectionSync(collection, plan, { removeMissingItems })
+            framer.closePlugin("Synchronization successful", { variant: "success" })
+        } catch (error) {
+            console.error(error)
+            const msg = error instanceof Error ? error.message : "Check the browser console for details."
+            setSyncError(msg)
+            framer.notify("Sync failed: " + msg, { variant: "error" })
+            setStatus("mapping-fields")
+        }
+    }
+
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
 
         if (!selectedSlugField) {
-            // This can't happen because the form will not submit if no slug field is selected
-            // but TypeScript can't infer that.
             console.error("There is no slug field selected. Sync will not be performed")
             framer.notify("Please select a slug field before importing.", { variant: "warning" })
             return
@@ -167,7 +188,8 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
         }
 
         try {
-            setStatus("syncing-collection")
+            setStatus("preparing-sync")
+            setSyncError(null)
 
             const fieldsToSync: ManagedCollectionFieldInput[] = []
             for (const field of fields) {
@@ -175,18 +197,44 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
                 fieldsToSync.push({ ...field, name: field.name.trim() || field.id })
             }
 
+            // Persist selected fields before computing removals so the plan matches what we write.
             await withManagedCollectionOperation("ManagedCollection.setFields", () =>
                 collection.setFields(fieldsToSync)
             )
-            await syncCollection(collection, dataSource, fieldsToSync, selectedSlugField)
-            framer.closePlugin("Synchronization successful", { variant: "success" })
+
+            const plan = await prepareCollectionSync(collection, dataSource, fieldsToSync, selectedSlugField)
+
+            if (plan.staleIds.length > 0) {
+                setPendingPlan(plan)
+                setStatus("mapping-fields")
+                return
+            }
+
+            await applyPlan(plan, false)
         } catch (error) {
             console.error(error)
             const msg = error instanceof Error ? error.message : "Check the browser console for details."
             framer.notify("Sync failed: " + msg, { variant: "error" })
-        } finally {
             setStatus("mapping-fields")
         }
+    }
+
+    if (pendingPlan) {
+        return (
+            <RemovalConfirmation
+                staleCount={pendingPlan.staleIds.length}
+                itemCount={pendingPlan.items.length}
+                isSyncing={status === "syncing-collection"}
+                error={syncError}
+                onSyncWithRemovals={() => void applyPlan(pendingPlan, true)}
+                onSyncWithoutRemovals={() => void applyPlan(pendingPlan, false)}
+                onCancel={() => {
+                    setPendingPlan(null)
+                    setSyncError(null)
+                    setStatus("mapping-fields")
+                }}
+            />
+        )
     }
 
     if (isLoadingFields) {
@@ -216,7 +264,7 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
                             if (!selectedField) return
                             setSelectedSlugField(selectedField)
                         }}
-                        disabled={!isAllowedToManage}
+                        disabled={!isAllowedToManage || isBusy}
                     >
                         {possibleSlugFields.map(possibleSlugField => {
                             return (
@@ -239,7 +287,7 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
                             isIgnored={ignoredFieldIds.has(field.id)}
                             onToggleDisabled={toggleFieldDisabledState}
                             onNameChange={changeFieldName}
-                            disabled={!isAllowedToManage}
+                            disabled={!isAllowedToManage || isBusy}
                         />
                     ))}
                 </div>
@@ -248,10 +296,10 @@ export function FieldMapping({ collection, dataSource, initialSlugFieldId }: Fie
                     <hr />
                     <button
                         type="submit"
-                        disabled={isSyncing || !isAllowedToManage}
+                        disabled={isBusy || !isAllowedToManage}
                         title={isAllowedToManage ? undefined : "Insufficient permissions"}
                     >
-                        {isSyncing ? <div className="framer-spinner" /> : `Import ${dataSourceName}`}
+                        {isBusy ? <div className="framer-spinner" /> : `Import ${dataSourceName}`}
                     </button>
                 </footer>
             </form>

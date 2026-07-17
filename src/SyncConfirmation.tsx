@@ -1,8 +1,9 @@
 import { framer, useIsAllowedTo, type ManagedCollection } from "framer-plugin"
 import { useEffect, useState } from "react"
-import { PLUGIN_KEYS, syncExistingCollection } from "./data"
+import { applyCollectionSync, PLUGIN_KEYS, prepareExistingCollectionSync, type SyncPlan } from "./data"
 import { type HoversConfig } from "./hoversApi"
 import { clearHoversConfig } from "./config"
+import { RemovalConfirmation } from "./RemovalConfirmation"
 import { MANAGED_COLLECTION_PERMISSION_MESSAGE, syncMethods } from "./permissions"
 
 interface SyncConfirmationProps {
@@ -22,8 +23,10 @@ const STATUS_LABELS: Record<string, string> = {
 export function SyncConfirmation({ collection, hoversConfig, onChangeSettings, onReconfigure }: SyncConfirmationProps) {
     const [savedStatus, setSavedStatus] = useState<string | null>(null)
     const [isLoadingSettings, setIsLoadingSettings] = useState(true)
+    const [isPreparing, setIsPreparing] = useState(false)
     const [isSyncing, setIsSyncing] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [pendingPlan, setPendingPlan] = useState<SyncPlan | null>(null)
     const isAllowedToSync = useIsAllowedTo(...syncMethods)
 
     useEffect(() => {
@@ -50,25 +53,12 @@ export function SyncConfirmation({ collection, hoversConfig, onChangeSettings, o
         }
     }, [collection])
 
-    const handleSync = async () => {
-        if (!isAllowedToSync) {
-            setError(MANAGED_COLLECTION_PERMISSION_MESSAGE)
-            return
-        }
-
-        setError(null)
-
+    const applyPlan = async (plan: SyncPlan, removeMissingItems: boolean) => {
         try {
             setIsSyncing(true)
-            const { didSync } = await syncExistingCollection(collection, hoversConfig)
-
-            if (didSync) {
-                framer.closePlugin("Synchronization successful", { variant: "success" })
-                return
-            }
-
-            setError("Could not sync with the saved settings. Please choose sync options manually.")
-            onChangeSettings()
+            setError(null)
+            await applyCollectionSync(collection, plan, { removeMissingItems })
+            framer.closePlugin("Synchronization successful", { variant: "success" })
         } catch (syncError) {
             console.error("Sync failed:", syncError)
             const message =
@@ -79,12 +69,64 @@ export function SyncConfirmation({ collection, hoversConfig, onChangeSettings, o
         }
     }
 
+    const handleSync = async () => {
+        if (!isAllowedToSync) {
+            setError(MANAGED_COLLECTION_PERMISSION_MESSAGE)
+            return
+        }
+
+        setError(null)
+
+        try {
+            setIsPreparing(true)
+            const plan = await prepareExistingCollectionSync(collection, hoversConfig)
+
+            if (!plan) {
+                setError("Could not sync with the saved settings. Please choose sync options manually.")
+                onChangeSettings()
+                return
+            }
+
+            if (plan.staleIds.length > 0) {
+                setPendingPlan(plan)
+                return
+            }
+
+            await applyPlan(plan, false)
+        } catch (syncError) {
+            console.error("Sync failed:", syncError)
+            const message =
+                syncError instanceof Error ? syncError.message : "Sync failed. Please try again or change settings."
+            setError(message)
+        } finally {
+            setIsPreparing(false)
+        }
+    }
+
     const handleDisconnect = async () => {
         await clearHoversConfig()
         onReconfigure()
     }
 
+    if (pendingPlan) {
+        return (
+            <RemovalConfirmation
+                staleCount={pendingPlan.staleIds.length}
+                itemCount={pendingPlan.items.length}
+                isSyncing={isSyncing}
+                error={error}
+                onSyncWithRemovals={() => void applyPlan(pendingPlan, true)}
+                onSyncWithoutRemovals={() => void applyPlan(pendingPlan, false)}
+                onCancel={() => {
+                    setPendingPlan(null)
+                    setError(null)
+                }}
+            />
+        )
+    }
+
     const statusLabel = savedStatus ? (STATUS_LABELS[savedStatus] ?? savedStatus) : "All statuses"
+    const isBusy = isPreparing || isSyncing
 
     return (
         <main className="setup">
@@ -107,22 +149,19 @@ export function SyncConfirmation({ collection, hoversConfig, onChangeSettings, o
                     <strong>Status filter:</strong> {isLoadingSettings ? "Loading..." : statusLabel}
                 </p>
                 <p>This will update articles in the current managed collection using your saved settings.</p>
+                <p>If any CMS items are missing from Hovers, you will be asked to confirm before they are removed.</p>
             </div>
 
             <div className="sync-actions">
-                <button
-                    type="button"
-                    onClick={handleSync}
-                    disabled={isSyncing || !isAllowedToSync || isLoadingSettings}
-                >
-                    {isSyncing ? <div className="framer-spinner" /> : "Sync Now"}
+                <button type="button" onClick={handleSync} disabled={isBusy || !isAllowedToSync || isLoadingSettings}>
+                    {isBusy ? <div className="framer-spinner" /> : "Sync Now"}
                 </button>
 
-                <button type="button" className="reconfigure-btn" onClick={onChangeSettings} disabled={isSyncing}>
+                <button type="button" className="reconfigure-btn" onClick={onChangeSettings} disabled={isBusy}>
                     Change Settings
                 </button>
 
-                <button type="button" className="reconfigure-btn" onClick={handleDisconnect} disabled={isSyncing}>
+                <button type="button" className="reconfigure-btn" onClick={handleDisconnect} disabled={isBusy}>
                     Disconnect
                 </button>
             </div>

@@ -10,6 +10,7 @@ import {
     MANAGED_COLLECTION_PERMISSION_MESSAGE,
     withManagedCollectionOperation,
 } from "./permissions"
+import { sanitizeHtml } from "./sanitizeHtml"
 
 export const PLUGIN_KEYS = {
     DATA_SOURCE_ID: "dataSourceId",
@@ -33,6 +34,18 @@ export interface GetDataSourceOptions {
     abortSignal?: AbortSignal
     saveStatus?: boolean
     collection?: ManagedCollection
+}
+
+export interface SyncPlan {
+    dataSourceId: string
+    fields: readonly ManagedCollectionFieldInput[]
+    slugField: ManagedCollectionFieldInput
+    items: ManagedCollectionItemInput[]
+    staleIds: string[]
+}
+
+export interface ApplySyncOptions {
+    removeMissingItems: boolean
 }
 
 export async function getDataSource(dataSourceId: string, options: GetDataSourceOptions): Promise<DataSource> {
@@ -88,7 +101,7 @@ export async function getDataSource(dataSourceId: string, options: GetDataSource
         id: { type: "string", value: article.id },
         title: { type: "string", value: article.title ?? "" },
         slug: { type: "string", value: article.slug ?? "" },
-        body_html: { type: "formattedText", value: article.body_html ?? "" },
+        body_html: { type: "formattedText", value: sanitizeHtml(article.body_html ?? "") },
         excerpt: { type: "string", value: article.excerpt ?? "" },
         // null featured_image must stay null — empty string is rejected by Framer's link type
         featured_image: { type: "link", value: article.featured_image ?? null },
@@ -110,14 +123,17 @@ export function mergeFieldsWithExistingFields(
     })
 }
 
-export async function syncCollection(
+export async function prepareCollectionSync(
     collection: ManagedCollection,
     dataSource: DataSource,
     fields: readonly ManagedCollectionFieldInput[],
     slugField: ManagedCollectionFieldInput
-) {
-    const items: ManagedCollectionItemInput[] = []
+): Promise<SyncPlan> {
+    if (!hasManagedCollectionSyncPermissions()) {
+        throw new Error(MANAGED_COLLECTION_PERMISSION_MESSAGE)
+    }
 
+    const items: ManagedCollectionItemInput[] = []
     const existingItemIds = new Set(
         await withManagedCollectionOperation("ManagedCollection.getItemIds", () => collection.getItemIds())
     )
@@ -145,8 +161,6 @@ export async function syncCollection(
             fieldData[field.id] = value
         }
 
-        // All synced items are live — the status filter on the sync screen
-        // is the publish gate. Only articles the user chose to sync come in.
         items.push({
             id: itemId,
             slug: slugValue.value,
@@ -155,24 +169,57 @@ export async function syncCollection(
         })
     }
 
-    const staleIds = Array.from(existingItemIds).filter(id => !seenIds.has(id))
-    if (staleIds.length > 0) {
-        await withManagedCollectionOperation("ManagedCollection.removeItems", () => collection.removeItems(staleIds))
+    return {
+        dataSourceId: dataSource.id,
+        fields,
+        slugField,
+        items,
+        staleIds: Array.from(existingItemIds).filter(id => !seenIds.has(id)),
+    }
+}
+
+export async function applyCollectionSync(
+    collection: ManagedCollection,
+    plan: SyncPlan,
+    options: ApplySyncOptions
+): Promise<void> {
+    if (!hasManagedCollectionSyncPermissions()) {
+        throw new Error(MANAGED_COLLECTION_PERMISSION_MESSAGE)
     }
 
-    await withManagedCollectionOperation("ManagedCollection.addItems", () => collection.addItems(items))
+    await withManagedCollectionOperation("ManagedCollection.setFields", () => collection.setFields([...plan.fields]))
+
+    if (options.removeMissingItems && plan.staleIds.length > 0) {
+        await withManagedCollectionOperation("ManagedCollection.removeItems", () =>
+            collection.removeItems(plan.staleIds)
+        )
+    }
+
+    await withManagedCollectionOperation("ManagedCollection.addItems", () => collection.addItems(plan.items))
     await withManagedCollectionOperation("ManagedCollection.setPluginData", () =>
-        collection.setPluginData(PLUGIN_KEYS.DATA_SOURCE_ID, dataSource.id)
+        collection.setPluginData(PLUGIN_KEYS.DATA_SOURCE_ID, plan.dataSourceId)
     )
     await withManagedCollectionOperation("ManagedCollection.setPluginData", () =>
-        collection.setPluginData(PLUGIN_KEYS.SLUG_FIELD_ID, slugField.id)
+        collection.setPluginData(PLUGIN_KEYS.SLUG_FIELD_ID, plan.slugField.id)
     )
 }
 
-export async function syncExistingCollection(
+export async function syncCollection(
+    collection: ManagedCollection,
+    dataSource: DataSource,
+    fields: readonly ManagedCollectionFieldInput[],
+    slugField: ManagedCollectionFieldInput,
+    options: ApplySyncOptions = { removeMissingItems: true }
+): Promise<SyncPlan> {
+    const plan = await prepareCollectionSync(collection, dataSource, fields, slugField)
+    await applyCollectionSync(collection, plan, options)
+    return plan
+}
+
+export async function prepareExistingCollectionSync(
     collection: ManagedCollection,
     config: HoversConfig
-): Promise<{ didSync: boolean }> {
+): Promise<SyncPlan | null> {
     if (!hasManagedCollectionSyncPermissions()) {
         throw new Error(MANAGED_COLLECTION_PERMISSION_MESSAGE)
     }
@@ -184,7 +231,7 @@ export async function syncExistingCollection(
     ])
 
     if (!dataSourceId || !slugFieldId) {
-        return { didSync: false }
+        return null
     }
 
     const dataSource = await getDataSource(dataSourceId, {
@@ -194,12 +241,24 @@ export async function syncExistingCollection(
         collection,
     })
 
-    const fields = await collection.getFields()
+    const existingFields = await collection.getFields()
+    const fields = mergeFieldsWithExistingFields(dataSource.fields, existingFields)
     const slugField = dataSource.fields.find(f => f.id === slugFieldId)
-    if (!slugField) return { didSync: false }
+    if (!slugField) return null
 
-    await withManagedCollectionOperation("ManagedCollection.setFields", () => collection.setFields(fields))
-    await syncCollection(collection, dataSource, fields, slugField)
+    return prepareCollectionSync(collection, dataSource, fields, slugField)
+}
 
-    return { didSync: true }
+export async function syncExistingCollection(
+    collection: ManagedCollection,
+    config: HoversConfig,
+    options: ApplySyncOptions = { removeMissingItems: true }
+): Promise<{ didSync: boolean; staleCount: number }> {
+    const plan = await prepareExistingCollectionSync(collection, config)
+    if (!plan) {
+        return { didSync: false, staleCount: 0 }
+    }
+
+    await applyCollectionSync(collection, plan, options)
+    return { didSync: true, staleCount: plan.staleIds.length }
 }
