@@ -199,6 +199,27 @@ input[type="number"]:disabled,
     cursor: not-allowed;
 }
 
+.sync-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 16px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--framer-color-text-secondary);
+}
+
+.sync-summary p {
+    margin: 0;
+}
+
+.sync-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 16px 20px;
+}
+
 .setup {
     align-items: stretch;
     justify-content: flex-start;
@@ -308,14 +329,18 @@ input[type="number"]:disabled,
     line-height: 1.4;
     margin: 0;
     font-weight: 400;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial,
+        sans-serif;
 }
 
 .setup select {
     min-width: 0;
     max-width: 100%;
     color: var(--framer-color-text);
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial,
+        sans-serif;
 }
 
 .setup label.status-filter-row,
@@ -418,7 +443,9 @@ input[type="number"]:disabled,
 /* Smooth transitions for form elements */
 .setup select,
 .setup input {
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
 }
 
 /* Ensure form takes available space */
